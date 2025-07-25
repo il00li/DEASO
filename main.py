@@ -678,18 +678,10 @@ def main():
         # Create bot instance
         bot = PixabayBot()
         
-        # Create application with improved settings
+        # Create application with proper settings
         application = (
             Application.builder()
             .token(BOT_TOKEN)
-            .read_timeout(30)
-            .write_timeout(30)
-            .connect_timeout(30)
-            .pool_timeout(30)
-            .get_updates_read_timeout(30)
-            .get_updates_write_timeout(30)
-            .get_updates_connect_timeout(30)
-            .get_updates_pool_timeout(30)
             .build()
         )
         
@@ -703,18 +695,10 @@ def main():
         logger.info(f"Bot Token: {BOT_TOKEN[:10]}...")
         logger.info(f"Admin ID: {ADMIN_ID}")
         
-        # Run with improved polling settings
+        # Run with simple polling settings
         application.run_polling(
             allowed_updates=Update.ALL_TYPES,
-            drop_pending_updates=True,
-            close_loop=False,
-            poll_interval=1.0,
-            timeout=30,
-            bootstrap_retries=3,
-            read_timeout=30,
-            write_timeout=30,
-            connect_timeout=30,
-            pool_timeout=30
+            drop_pending_updates=True
         )
         
     except Exception as e:
