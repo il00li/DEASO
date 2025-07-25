@@ -5,7 +5,7 @@ import json
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 import requests
-from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
 # Configure logging
@@ -404,18 +404,35 @@ class PixabayBot:
             
             try:
                 if 'webformatURL' in result:
-                    await query.edit_message_caption(
-                        caption=caption,
+                    # For image results, we need to update both the image and caption
+                    media = InputMediaPhoto(
+                        media=result['webformatURL'],
+                        caption=caption
+                    )
+                    await query.edit_message_media(
+                        media=media,
                         reply_markup=reply_markup
                     )
                 else:
+                    # For text-only results (music)
                     await query.edit_message_text(
                         text=caption,
                         reply_markup=reply_markup
                     )
             except Exception as e:
                 logger.error(f"Error updating result: {e}")
-                await query.edit_message_text(caption, reply_markup=reply_markup)
+                # Fallback to sending new message if editing fails
+                try:
+                    if 'webformatURL' in result:
+                        await query.message.reply_photo(
+                            photo=result['webformatURL'],
+                            caption=caption,
+                            reply_markup=reply_markup
+                        )
+                    else:
+                        await query.message.reply_text(caption, reply_markup=reply_markup)
+                except Exception as e2:
+                    logger.error(f"Fallback also failed: {e2}")
     
     async def select_result(self, query, user_id: int):
         """Handle result selection"""
