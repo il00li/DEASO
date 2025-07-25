@@ -28,7 +28,7 @@ except ValueError:
 PIXABAY_API_KEY = os.getenv('PIXABAY_API_KEY', '51444506-bffefcaf12816bd85a20222d1')
 PORT = int(os.getenv('PORT', '10000'))
 WEBHOOK_URL = os.getenv('WEBHOOK_URL', '')
-IS_RENDER = os.getenv('RENDER', 'false').lower() == 'true'
+# Always use webhook mode
 
 # Flask app for webhook
 app = Flask(__name__)
@@ -727,39 +727,36 @@ def main():
         logger.info(f"Is Render: {IS_RENDER}")
         logger.info(f"Port: {PORT}")
         
-        if IS_RENDER and WEBHOOK_URL:
-            # Webhook mode for Render
-            logger.info("Starting in webhook mode for Render...")
-            
-            # Start Flask in background thread
-            flask_thread = threading.Thread(target=run_flask, daemon=True)
-            flask_thread.start()
-            
-            # Set webhook
+        # Always use webhook mode - no polling
+        logger.info("Starting in webhook mode...")
+        
+        # Start Flask in background thread
+        flask_thread = threading.Thread(target=run_flask, daemon=True)
+        flask_thread.start()
+        
+        # Set webhook URL
+        if WEBHOOK_URL:
             webhook_url = f"{WEBHOOK_URL}/{BOT_TOKEN}"
-            application.bot.set_webhook(webhook_url)
-            logger.info(f"Webhook set to: {webhook_url}")
-            
-            # Keep application running
-            application.initialize()
-            application.start()
-            
-            # Keep main thread alive
-            try:
-                while True:
-                    asyncio.sleep(1)
-            except KeyboardInterrupt:
-                logger.info("Shutting down...")
-            finally:
-                application.stop()
-                application.shutdown()
         else:
-            # Polling mode for Replit
-            logger.info("Starting in polling mode for Replit...")
-            application.run_polling(
-                allowed_updates=Update.ALL_TYPES,
-                drop_pending_updates=True
-            )
+            webhook_url = f"https://{os.getenv('REPL_SLUG', 'telegram-bot')}.{os.getenv('REPL_OWNER', 'user')}.repl.co/{BOT_TOKEN}"
+        
+        # Set webhook
+        application.bot.set_webhook(webhook_url)
+        logger.info(f"Webhook set to: {webhook_url}")
+        
+        # Keep application running
+        application.initialize()
+        application.start()
+        
+        # Keep main thread alive
+        try:
+            while True:
+                asyncio.sleep(1)
+        except KeyboardInterrupt:
+            logger.info("Shutting down...")
+        finally:
+            application.stop()
+            application.shutdown()
         
     except Exception as e:
         logger.error(f"Failed to start bot: {e}")

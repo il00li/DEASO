@@ -4,7 +4,7 @@ modules = ["python-3.11"]
 channel = "stable-25_05"
 
 [workflows]
-runButton = "Project"
+runButton = "Telegram Bot Webhook"
 
 [[workflows.workflow]]
 name = "Project"
@@ -22,3 +22,16 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pip install python-telegram-bot requests && python main.py"
+
+[[workflows.workflow]]
+name = "Telegram Bot Webhook"
+author = 45518308
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pip install python-telegram-bot requests flask"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python main.py"
