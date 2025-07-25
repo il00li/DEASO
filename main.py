@@ -1,3 +1,4 @@
+
 import os
 import logging
 import asyncio
@@ -235,8 +236,6 @@ class PixabayBot:
             await self.send_subscription_message(update)
             return
         
-        # No more text commands needed - everything is now button-based
-        
         # Handle search queries
         if users_data[user_id].get('waiting_for_search'):
             await self.perform_search(update, user_id)
@@ -285,7 +284,7 @@ class PixabayBot:
             url = self.pixabay_base_url
         
         try:
-            response = requests.get(url, params=params)
+            response = requests.get(url, params=params, timeout=10)
             data = response.json()
             
             if data.get('total', 0) == 0:
@@ -310,7 +309,7 @@ class PixabayBot:
             await update.message.reply_text("❌ حدث خطأ في البحث، حاول مرة أخرى")
     
     async def show_search_result(self, update: Update, user_id: int, edit_message=False):
-        """Display search result with navigation - supports all media types"""
+        """Display search result with navigation"""
         results = users_data[user_id]['search_results']
         index = users_data[user_id]['current_result_index']
         
@@ -365,31 +364,26 @@ class PixabayBot:
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         try:
-            if not edit_message:
-                # Send new message
-                if media_type == 'photo':
-                    await update.message.reply_photo(
-                        photo=media_url,
-                        caption=caption,
-                        reply_markup=reply_markup
-                    )
-                elif media_type == 'video':
-                    await update.message.reply_video(
-                        video=media_url,
-                        caption=caption,
-                        reply_markup=reply_markup
-                    )
-                elif media_type == 'audio':
-                    await update.message.reply_audio(
-                        audio=media_url,
-                        caption=caption,
-                        reply_markup=reply_markup
-                    )
-                else:
-                    await update.message.reply_text(caption, reply_markup=reply_markup)
+            if media_type == 'photo':
+                await update.message.reply_photo(
+                    photo=media_url,
+                    caption=caption,
+                    reply_markup=reply_markup
+                )
+            elif media_type == 'video':
+                await update.message.reply_video(
+                    video=media_url,
+                    caption=caption,
+                    reply_markup=reply_markup
+                )
+            elif media_type == 'audio':
+                await update.message.reply_audio(
+                    audio=media_url,
+                    caption=caption,
+                    reply_markup=reply_markup
+                )
             else:
-                # Edit existing message (handled in navigate_results)
-                pass
+                await update.message.reply_text(caption, reply_markup=reply_markup)
                 
         except Exception as e:
             logger.error(f"Error showing result: {e}")
@@ -397,7 +391,7 @@ class PixabayBot:
             await update.message.reply_text(caption, reply_markup=reply_markup)
     
     async def navigate_results(self, query, user_id: int, direction: int):
-        """Navigate through search results - supports all media types"""
+        """Navigate through search results"""
         current_index = users_data[user_id]['current_result_index']
         results = users_data[user_id]['search_results']
         
@@ -406,7 +400,6 @@ class PixabayBot:
         if 0 <= new_index < len(results):
             users_data[user_id]['current_result_index'] = new_index
             
-            # Update the result display directly
             result = results[new_index]
             
             # Determine media type and prepare message
@@ -423,7 +416,7 @@ class PixabayBot:
                 media_url = result['url']
                 media_type = 'audio'
             
-            # Prepare caption based on media type
+            # Prepare caption
             caption = f"🔍 النتيجة {new_index + 1} من {len(results)}\n"
             
             if media_type in ['photo', 'video']:
@@ -455,46 +448,16 @@ class PixabayBot:
             
             try:
                 if media_type == 'photo':
-                    # Update photo with new image and caption
-                    media = InputMediaPhoto(
-                        media=media_url,
-                        caption=caption
-                    )
-                    await query.edit_message_media(
-                        media=media,
-                        reply_markup=reply_markup
-                    )
+                    media = InputMediaPhoto(media=media_url, caption=caption)
+                    await query.edit_message_media(media=media, reply_markup=reply_markup)
                 elif media_type == 'video':
-                    # Update video with new video and caption
-                    media = InputMediaVideo(
-                        media=media_url,
-                        caption=caption
-                    )
-                    await query.edit_message_media(
-                        media=media,
-                        reply_markup=reply_markup
-                    )
-                elif media_type == 'audio':
-                    # For audio, we can't edit media, so we send a new message
-                    await query.message.reply_audio(
-                        audio=media_url,
-                        caption=caption,
-                        reply_markup=reply_markup
-                    )
-                    # Delete the old message
-                    try:
-                        await query.message.delete()
-                    except:
-                        pass
+                    media = InputMediaVideo(media=media_url, caption=caption)
+                    await query.edit_message_media(media=media, reply_markup=reply_markup)
                 else:
-                    # For text-only results
-                    await query.edit_message_text(
-                        text=caption,
-                        reply_markup=reply_markup
-                    )
+                    await query.edit_message_text(text=caption, reply_markup=reply_markup)
             except Exception as e:
                 logger.error(f"Error updating result: {e}")
-                # Fallback to sending new message
+                # Send new message as fallback
                 try:
                     if media_type == 'photo':
                         await query.message.reply_photo(
@@ -505,12 +468,6 @@ class PixabayBot:
                     elif media_type == 'video':
                         await query.message.reply_video(
                             video=media_url,
-                            caption=caption,
-                            reply_markup=reply_markup
-                        )
-                    elif media_type == 'audio':
-                        await query.message.reply_audio(
-                            audio=media_url,
                             caption=caption,
                             reply_markup=reply_markup
                         )
@@ -663,6 +620,7 @@ class PixabayBot:
                 try:
                     await update.get_bot().send_message(chat_id=user_id, text=message)
                     sent_count += 1
+                    await asyncio.sleep(0.1)  # Rate limiting
                 except Exception as e:
                     logger.error(f"Failed to send broadcast to {user_id}: {e}")
                     failed_count += 1
@@ -703,7 +661,6 @@ class PixabayBot:
                 await update.message.reply_text(f"✅ تم حظر المستخدم {user_id}")
         except ValueError:
             await update.message.reply_text("❌ معرف المستخدم غير صحيح")
-    
 
 
 def main():
@@ -721,7 +678,7 @@ def main():
         # Create bot instance
         bot = PixabayBot()
         
-        # Create application with better error handling
+        # Create application with improved settings
         application = (
             Application.builder()
             .token(BOT_TOKEN)
@@ -729,6 +686,10 @@ def main():
             .write_timeout(30)
             .connect_timeout(30)
             .pool_timeout(30)
+            .get_updates_read_timeout(30)
+            .get_updates_write_timeout(30)
+            .get_updates_connect_timeout(30)
+            .get_updates_pool_timeout(30)
             .build()
         )
         
@@ -742,11 +703,18 @@ def main():
         logger.info(f"Bot Token: {BOT_TOKEN[:10]}...")
         logger.info(f"Admin ID: {ADMIN_ID}")
         
-        # Use polling with better error handling
+        # Run with improved polling settings
         application.run_polling(
             allowed_updates=Update.ALL_TYPES,
             drop_pending_updates=True,
-            close_loop=False
+            close_loop=False,
+            poll_interval=1.0,
+            timeout=30,
+            bootstrap_retries=3,
+            read_timeout=30,
+            write_timeout=30,
+            connect_timeout=30,
+            pool_timeout=30
         )
         
     except Exception as e:
