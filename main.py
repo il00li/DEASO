@@ -713,19 +713,8 @@ def main():
     logger.info("Starting Pixabay Telegram Bot...")
     logger.info(f"Bot running on port {port}")
     
-    # Use webhook for production (Render) or polling for development
-    if os.environ.get('RENDER'):
-        # Production mode with webhook
-        webhook_url = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/{BOT_TOKEN}"
-        application.run_webhook(
-            listen="0.0.0.0",
-            port=port,
-            webhook_url=webhook_url,
-            url_path=BOT_TOKEN
-        )
-    else:
-        # Development mode with polling
-        application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+    # Always use polling for simplicity
+    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 if __name__ == '__main__':
     main()

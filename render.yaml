@@ -11,3 +11,5 @@ services:
         value: "7251748706"
       - key: PIXABAY_API_KEY
         value: 51444506-bffefcaf12816bd85a20222d1
+      - key: PORT
+        value: "10000"
