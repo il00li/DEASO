@@ -122,6 +122,10 @@ class PixabayBot:
             [InlineKeyboardButton("نوع البحث 💐", callback_data="search_type_menu")]
         ]
         
+        # Add admin panel button for admin user
+        if update.effective_user and update.effective_user.id == ADMIN_ID:
+            keyboard.append([InlineKeyboardButton("🔧 لوحة التحكم", callback_data="admin_panel")])
+        
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         if update.message:
@@ -177,6 +181,10 @@ class PixabayBot:
             await self.send_main_menu(update)
         
         # Admin callbacks
+        elif data == "admin_panel":
+            if user_id == ADMIN_ID:
+                await self.show_admin_panel_buttons(query)
+        
         elif data.startswith("admin_"):
             if user_id == ADMIN_ID:
                 await self.handle_admin_callback(query, data)
@@ -214,15 +222,27 @@ class PixabayBot:
             await self.send_subscription_message(update)
             return
         
-        # Handle admin commands
-        if user_id == ADMIN_ID and update.message.text.startswith('/admin'):
-            await self.handle_admin_command(update, context)
-            return
+        # No more text commands needed - everything is now button-based
         
         # Handle search queries
         if users_data[user_id].get('waiting_for_search'):
             await self.perform_search(update, user_id)
             users_data[user_id]['waiting_for_search'] = False
+        
+        # Handle admin functions
+        elif user_id == ADMIN_ID:
+            if users_data[user_id].get('waiting_for_broadcast'):
+                await self.send_broadcast_message(update, update.message.text)
+                users_data[user_id]['waiting_for_broadcast'] = False
+            elif users_data[user_id].get('waiting_for_channel_add'):
+                await self.add_channel(update, update.message.text)
+                users_data[user_id]['waiting_for_channel_add'] = False
+            elif users_data[user_id].get('waiting_for_channel_remove'):
+                await self.remove_channel(update, update.message.text)
+                users_data[user_id]['waiting_for_channel_remove'] = False
+            elif users_data[user_id].get('waiting_for_user_action'):
+                await self.handle_user_action(update, update.message.text)
+                users_data[user_id]['waiting_for_user_action'] = False
     
     async def perform_search(self, update: Update, user_id: int):
         """Perform Pixabay search"""
@@ -351,14 +371,51 @@ class PixabayBot:
         if 0 <= new_index < len(results):
             users_data[user_id]['current_result_index'] = new_index
             
-            # Create a mock update object for show_search_result
-            class MockUpdate:
-                def __init__(self, callback_query):
-                    self.callback_query = callback_query
-                    self.message = None
+            # Update the result display directly
+            result = results[new_index]
             
-            mock_update = MockUpdate(query)
-            await self.show_search_result(mock_update, user_id, edit_message=True)
+            # Prepare result message
+            if 'webformatURL' in result:  # Image/Video
+                caption = f"🔍 النتيجة {new_index + 1} من {len(results)}\n"
+                caption += f"👀 المشاهدات: {result.get('views', 'غير محدد')}\n"
+                caption += f"👍 الإعجابات: {result.get('likes', 'غير محدد')}\n"
+                caption += f"📥 التحميلات: {result.get('downloads', 'غير محدد')}"
+            else:  # Music
+                caption = f"🎵 {result.get('name', 'غير محدد')}\n"
+                caption += f"🎤 الفنان: {result.get('artist', 'غير محدد')}\n"
+                caption += f"⏱️ المدة: {result.get('duration', 'غير محدد')} ثانية\n"
+                caption += f"🔍 النتيجة {new_index + 1} من {len(results)}"
+            
+            # Navigation keyboard
+            keyboard = []
+            nav_row = []
+            
+            if new_index > 0:
+                nav_row.append(InlineKeyboardButton("« السابق", callback_data="prev_result"))
+            if new_index < len(results) - 1:
+                nav_row.append(InlineKeyboardButton("التالي »", callback_data="next_result"))
+            
+            if nav_row:
+                keyboard.append(nav_row)
+            
+            keyboard.append([InlineKeyboardButton("اختيار 🥇", callback_data="select_result")])
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            try:
+                if 'webformatURL' in result:
+                    await query.edit_message_caption(
+                        caption=caption,
+                        reply_markup=reply_markup
+                    )
+                else:
+                    await query.edit_message_text(
+                        text=caption,
+                        reply_markup=reply_markup
+                    )
+            except Exception as e:
+                logger.error(f"Error updating result: {e}")
+                await query.edit_message_text(caption, reply_markup=reply_markup)
     
     async def select_result(self, query, user_id: int):
         """Handle result selection"""
@@ -384,75 +441,49 @@ class PixabayBot:
                 
                 await query.edit_message_text(caption)
     
-    async def handle_admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle admin commands"""
-        command = update.message.text.split()
-        
-        if len(command) < 2:
-            await self.show_admin_panel(update)
-            return
-        
-        action = command[1]
-        
-        if action == "panel":
-            await self.show_admin_panel(update)
-        
-        elif action == "ban" and len(command) >= 3:
-            try:
-                target_id = int(command[2])
-                banned_users.add(target_id)
-                await update.message.reply_text(f"✅ تم حظر المستخدم {target_id}")
-            except ValueError:
-                await update.message.reply_text("❌ معرف المستخدم غير صحيح")
-        
-        elif action == "unban" and len(command) >= 3:
-            try:
-                target_id = int(command[2])
-                banned_users.discard(target_id)
-                await update.message.reply_text(f"✅ تم إلغاء حظر المستخدم {target_id}")
-            except ValueError:
-                await update.message.reply_text("❌ معرف المستخدم غير صحيح")
-        
-        elif action == "stats":
-            await self.show_bot_stats(update)
-        
-        elif action == "broadcast" and len(command) >= 3:
-            message = " ".join(command[2:])
-            await self.broadcast_message(update, message)
-        
-        elif action == "addchannel" and len(command) >= 3:
-            channel = command[2]
-            if not channel.startswith('@'):
-                channel = '@' + channel
-            force_channels.append(channel)
-            await update.message.reply_text(f"✅ تم إضافة القناة {channel} للاشتراك الإجباري")
-        
-        elif action == "removechannel" and len(command) >= 3:
-            channel = command[2]
-            if not channel.startswith('@'):
-                channel = '@' + channel
-            if channel in force_channels:
-                force_channels.remove(channel)
-                await update.message.reply_text(f"✅ تم إزالة القناة {channel} من الاشتراك الإجباري")
-            else:
-                await update.message.reply_text(f"❌ القناة {channel} غير موجودة في قائمة الاشتراك الإجباري")
-    
-    async def show_admin_panel(self, update: Update):
-        """Show admin control panel"""
+    async def show_admin_panel_buttons(self, query):
+        """Show admin control panel with buttons"""
         message = """🔧 لوحة تحكم المدير
-
-الأوامر المتاحة:
-/admin panel - عرض هذه اللوحة
-/admin stats - إحصائيات البوت
-/admin ban [ID] - حظر مستخدم
-/admin unban [ID] - إلغاء حظر مستخدم
-/admin broadcast [message] - إرسال رسالة لجميع المستخدمين
-/admin addchannel [channel] - إضافة قناة للاشتراك الإجباري
-/admin removechannel [channel] - إزالة قناة من الاشتراك الإجباري"""
         
-        await update.message.reply_text(message)
+اختر العملية المطلوبة:"""
+        
+        keyboard = [
+            [InlineKeyboardButton("📊 الإحصائيات", callback_data="admin_stats")],
+            [InlineKeyboardButton("📢 إدارة القنوات", callback_data="admin_channels")],
+            [InlineKeyboardButton("👤 إدارة المستخدمين", callback_data="admin_users")],
+            [InlineKeyboardButton("📡 إرسال إشعار", callback_data="admin_broadcast")],
+            [InlineKeyboardButton("🔙 العودة", callback_data="back_to_main")]
+        ]
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(message, reply_markup=reply_markup)
     
-    async def show_bot_stats(self, update: Update):
+    async def handle_admin_callback(self, query, data: str):
+        """Handle admin callback queries"""
+        if data == "admin_stats":
+            await self.show_bot_stats_buttons(query)
+        elif data == "admin_channels":
+            await self.show_channels_management(query)
+        elif data == "admin_users":
+            await self.show_users_management(query)
+        elif data == "admin_broadcast":
+            await self.show_broadcast_menu(query)
+        elif data == "admin_add_channel":
+            await query.edit_message_text("📢 أرسل اسم القناة مع @ (مثال: @channelname)")
+            users_data[query.from_user.id]['waiting_for_channel_add'] = True
+        elif data == "admin_remove_channel":
+            await query.edit_message_text("📢 أرسل اسم القناة مع @ المراد إزالتها")
+            users_data[query.from_user.id]['waiting_for_channel_remove'] = True
+        elif data.startswith("ban_user_"):
+            user_id_to_ban = int(data.replace("ban_user_", ""))
+            banned_users.add(user_id_to_ban)
+            await query.edit_message_text(f"✅ تم حظر المستخدم {user_id_to_ban}")
+        elif data.startswith("unban_user_"):
+            user_id_to_unban = int(data.replace("unban_user_", ""))
+            banned_users.discard(user_id_to_unban)
+            await query.edit_message_text(f"✅ تم إلغاء حظر المستخدم {user_id_to_unban}")
+    
+    async def show_bot_stats_buttons(self, query):
         """Show bot statistics"""
         start_date = datetime.fromisoformat(bot_stats['start_date'])
         days_running = (datetime.now() - start_date).days
@@ -469,30 +500,115 @@ class PixabayBot:
 القنوات المطلوبة للاشتراك:
 {chr(10).join(force_channels) if force_channels else 'لا توجد قنوات'}"""
         
-        await update.message.reply_text(message)
+        keyboard = [[InlineKeyboardButton("🔙 العودة للوحة التحكم", callback_data="admin_panel")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(message, reply_markup=reply_markup)
     
-    async def broadcast_message(self, update: Update, message: str):
+    async def show_channels_management(self, query):
+        """Show channels management menu"""
+        message = """📢 إدارة القنوات
+        
+القنوات الحالية:"""
+        
+        if force_channels:
+            for i, channel in enumerate(force_channels, 1):
+                message += f"\n{i}. {channel}"
+        else:
+            message += "\nلا توجد قنوات مضافة"
+        
+        keyboard = [
+            [InlineKeyboardButton("➕ إضافة قناة", callback_data="admin_add_channel")],
+            [InlineKeyboardButton("➖ إزالة قناة", callback_data="admin_remove_channel")],
+            [InlineKeyboardButton("🔙 العودة للوحة التحكم", callback_data="admin_panel")]
+        ]
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(message, reply_markup=reply_markup)
+    
+    async def show_users_management(self, query):
+        """Show users management menu"""
+        message = f"""👤 إدارة المستخدمين
+        
+إجمالي المستخدمين: {len(users_data)}
+المستخدمون المحظورون: {len(banned_users)}
+
+للحظر أو إلغاء الحظر، أرسل معرف المستخدم"""
+        
+        keyboard = [[InlineKeyboardButton("🔙 العودة للوحة التحكم", callback_data="admin_panel")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(message, reply_markup=reply_markup)
+    
+    async def show_broadcast_menu(self, query):
+        """Show broadcast message menu"""
+        message = """📡 إرسال إشعار جماعي
+        
+أرسل الرسالة التي تريد إرسالها لجميع المستخدمين"""
+        
+        keyboard = [[InlineKeyboardButton("🔙 العودة للوحة التحكم", callback_data="admin_panel")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(message, reply_markup=reply_markup)
+        
+        # Set user state to wait for broadcast message
+        users_data[query.from_user.id]['waiting_for_broadcast'] = True
+    
+    async def send_broadcast_message(self, update: Update, message: str):
         """Broadcast message to all users"""
         sent_count = 0
         failed_count = 0
         
         for user_id in users_data.keys():
-            try:
-                await update.get_bot().send_message(chat_id=user_id, text=message)
-                sent_count += 1
-            except Exception as e:
-                logger.error(f"Failed to send broadcast to {user_id}: {e}")
-                failed_count += 1
+            if user_id != update.effective_user.id:  # Don't send to admin
+                try:
+                    await update.get_bot().send_message(chat_id=user_id, text=message)
+                    sent_count += 1
+                except Exception as e:
+                    logger.error(f"Failed to send broadcast to {user_id}: {e}")
+                    failed_count += 1
         
         await update.message.reply_text(f"✅ تم إرسال الرسالة إلى {sent_count} مستخدم\n❌ فشل الإرسال إلى {failed_count} مستخدم")
     
-    async def handle_admin_callback(self, query, data: str):
-        """Handle admin callback queries"""
-        # Implementation for admin callback handling
-        pass
+    async def add_channel(self, update: Update, channel: str):
+        """Add channel to force subscription list"""
+        if not channel.startswith('@'):
+            channel = '@' + channel
+        
+        if channel not in force_channels:
+            force_channels.append(channel)
+            await update.message.reply_text(f"✅ تم إضافة القناة {channel} للاشتراك الإجباري")
+        else:
+            await update.message.reply_text(f"❌ القناة {channel} موجودة بالفعل")
+    
+    async def remove_channel(self, update: Update, channel: str):
+        """Remove channel from force subscription list"""
+        if not channel.startswith('@'):
+            channel = '@' + channel
+        
+        if channel in force_channels:
+            force_channels.remove(channel)
+            await update.message.reply_text(f"✅ تم إزالة القناة {channel} من الاشتراك الإجباري")
+        else:
+            await update.message.reply_text(f"❌ القناة {channel} غير موجودة في قائمة الاشتراك الإجباري")
+    
+    async def handle_user_action(self, update: Update, user_input: str):
+        """Handle user ban/unban actions"""
+        try:
+            user_id = int(user_input)
+            if user_id in banned_users:
+                banned_users.discard(user_id)
+                await update.message.reply_text(f"✅ تم إلغاء حظر المستخدم {user_id}")
+            else:
+                banned_users.add(user_id)
+                await update.message.reply_text(f"✅ تم حظر المستخدم {user_id}")
+        except ValueError:
+            await update.message.reply_text("❌ معرف المستخدم غير صحيح")
+    
+
 
 def main():
     """Start the bot"""
+    # Get port from environment for Render deployment
+    port = int(os.environ.get('PORT', 8080))
+    
     # Create bot instance
     bot = PixabayBot()
     
@@ -506,7 +622,21 @@ def main():
     
     # Start the bot
     logger.info("Starting Pixabay Telegram Bot...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    logger.info(f"Bot running on port {port}")
+    
+    # Use webhook for production (Render) or polling for development
+    if os.environ.get('RENDER'):
+        # Production mode with webhook
+        webhook_url = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/{BOT_TOKEN}"
+        application.run_webhook(
+            listen="0.0.0.0",
+            port=port,
+            webhook_url=webhook_url,
+            url_path=BOT_TOKEN
+        )
+    else:
+        # Development mode with polling
+        application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 if __name__ == '__main__':
     main()
