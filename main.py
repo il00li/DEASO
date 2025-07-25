@@ -5,7 +5,7 @@ import json
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 import requests
-from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
+from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, InputMediaVideo, InputMediaDocument
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
 # Configure logging
@@ -253,7 +253,7 @@ class PixabayBot:
         params = {
             'key': PIXABAY_API_KEY,
             'q': search_query,
-            'per_page': 20,
+            'per_page': 100,  # Increased to 100 results
             'safesearch': 'true',
             'lang': 'ar'
         }
@@ -297,7 +297,7 @@ class PixabayBot:
             await update.message.reply_text("❌ حدث خطأ في البحث، حاول مرة أخرى")
     
     async def show_search_result(self, update: Update, user_id: int, edit_message=False):
-        """Display search result with navigation"""
+        """Display search result with navigation - supports all media types"""
         results = users_data[user_id]['search_results']
         index = users_data[user_id]['current_result_index']
         
@@ -306,19 +306,34 @@ class PixabayBot:
         
         result = results[index]
         
-        # Prepare result message
-        if 'webformatURL' in result:  # Image/Video
-            image_url = result['webformatURL']
-            caption = f"🔍 النتيجة {index + 1} من {len(results)}\n"
+        # Determine media type and prepare message
+        media_url = None
+        media_type = None
+        
+        # Check for different media types
+        if 'webformatURL' in result:  # Images, illustrations, vectors
+            media_url = result['webformatURL']
+            media_type = 'photo'
+        elif 'videos' in result:  # Video results
+            media_url = result['videos']['small']['url']
+            media_type = 'video'
+        elif 'url' in result and result.get('type') == 'music':  # Music
+            media_url = result['url']
+            media_type = 'audio'
+        
+        # Prepare caption based on media type
+        caption = f"🔍 النتيجة {index + 1} من {len(results)}\n"
+        
+        if media_type in ['photo', 'video']:
             caption += f"👀 المشاهدات: {result.get('views', 'غير محدد')}\n"
             caption += f"👍 الإعجابات: {result.get('likes', 'غير محدد')}\n"
-            caption += f"📥 التحميلات: {result.get('downloads', 'غير محدد')}"
-        else:  # Music
-            caption = f"🎵 {result.get('name', 'غير محدد')}\n"
+            caption += f"📥 التحميلات: {result.get('downloads', 'غير محدد')}\n"
+            caption += f"🏷️ الكلمات المفتاحية: {result.get('tags', 'غير محدد')}"
+        elif media_type == 'audio':
+            caption += f"🎵 {result.get('name', 'غير محدد')}\n"
             caption += f"🎤 الفنان: {result.get('artist', 'غير محدد')}\n"
             caption += f"⏱️ المدة: {result.get('duration', 'غير محدد')} ثانية\n"
-            caption += f"🔍 النتيجة {index + 1} من {len(results)}"
-            image_url = None
+            caption += f"🏷️ النوع: {result.get('genre', 'غير محدد')}"
         
         # Navigation keyboard
         keyboard = []
@@ -337,32 +352,39 @@ class PixabayBot:
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         try:
-            if image_url and not edit_message:
-                await update.message.reply_photo(
-                    photo=image_url,
-                    caption=caption,
-                    reply_markup=reply_markup
-                )
-            elif edit_message and hasattr(update, 'callback_query'):
-                if image_url:
-                    await update.callback_query.edit_message_caption(
+            if not edit_message:
+                # Send new message
+                if media_type == 'photo':
+                    await update.message.reply_photo(
+                        photo=media_url,
+                        caption=caption,
+                        reply_markup=reply_markup
+                    )
+                elif media_type == 'video':
+                    await update.message.reply_video(
+                        video=media_url,
+                        caption=caption,
+                        reply_markup=reply_markup
+                    )
+                elif media_type == 'audio':
+                    await update.message.reply_audio(
+                        audio=media_url,
                         caption=caption,
                         reply_markup=reply_markup
                     )
                 else:
-                    await update.callback_query.edit_message_text(
-                        text=caption,
-                        reply_markup=reply_markup
-                    )
+                    await update.message.reply_text(caption, reply_markup=reply_markup)
             else:
-                await update.message.reply_text(caption, reply_markup=reply_markup)
+                # Edit existing message (handled in navigate_results)
+                pass
                 
         except Exception as e:
             logger.error(f"Error showing result: {e}")
+            # Fallback to text message
             await update.message.reply_text(caption, reply_markup=reply_markup)
     
     async def navigate_results(self, query, user_id: int, direction: int):
-        """Navigate through search results"""
+        """Navigate through search results - supports all media types"""
         current_index = users_data[user_id]['current_result_index']
         results = users_data[user_id]['search_results']
         
@@ -374,17 +396,33 @@ class PixabayBot:
             # Update the result display directly
             result = results[new_index]
             
-            # Prepare result message
-            if 'webformatURL' in result:  # Image/Video
-                caption = f"🔍 النتيجة {new_index + 1} من {len(results)}\n"
+            # Determine media type and prepare message
+            media_url = None
+            media_type = None
+            
+            if 'webformatURL' in result:  # Images, illustrations, vectors
+                media_url = result['webformatURL']
+                media_type = 'photo'
+            elif 'videos' in result:  # Video results
+                media_url = result['videos']['small']['url']
+                media_type = 'video'
+            elif 'url' in result and result.get('type') == 'music':  # Music
+                media_url = result['url']
+                media_type = 'audio'
+            
+            # Prepare caption based on media type
+            caption = f"🔍 النتيجة {new_index + 1} من {len(results)}\n"
+            
+            if media_type in ['photo', 'video']:
                 caption += f"👀 المشاهدات: {result.get('views', 'غير محدد')}\n"
                 caption += f"👍 الإعجابات: {result.get('likes', 'غير محدد')}\n"
-                caption += f"📥 التحميلات: {result.get('downloads', 'غير محدد')}"
-            else:  # Music
-                caption = f"🎵 {result.get('name', 'غير محدد')}\n"
+                caption += f"📥 التحميلات: {result.get('downloads', 'غير محدد')}\n"
+                caption += f"🏷️ الكلمات المفتاحية: {result.get('tags', 'غير محدد')}"
+            elif media_type == 'audio':
+                caption += f"🎵 {result.get('name', 'غير محدد')}\n"
                 caption += f"🎤 الفنان: {result.get('artist', 'غير محدد')}\n"
                 caption += f"⏱️ المدة: {result.get('duration', 'غير محدد')} ثانية\n"
-                caption += f"🔍 النتيجة {new_index + 1} من {len(results)}"
+                caption += f"🏷️ النوع: {result.get('genre', 'غير محدد')}"
             
             # Navigation keyboard
             keyboard = []
@@ -403,29 +441,63 @@ class PixabayBot:
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             try:
-                if 'webformatURL' in result:
-                    # For image results, we need to update both the image and caption
+                if media_type == 'photo':
+                    # Update photo with new image and caption
                     media = InputMediaPhoto(
-                        media=result['webformatURL'],
+                        media=media_url,
                         caption=caption
                     )
                     await query.edit_message_media(
                         media=media,
                         reply_markup=reply_markup
                     )
+                elif media_type == 'video':
+                    # Update video with new video and caption
+                    media = InputMediaVideo(
+                        media=media_url,
+                        caption=caption
+                    )
+                    await query.edit_message_media(
+                        media=media,
+                        reply_markup=reply_markup
+                    )
+                elif media_type == 'audio':
+                    # For audio, we can't edit media, so we send a new message
+                    await query.message.reply_audio(
+                        audio=media_url,
+                        caption=caption,
+                        reply_markup=reply_markup
+                    )
+                    # Delete the old message
+                    try:
+                        await query.message.delete()
+                    except:
+                        pass
                 else:
-                    # For text-only results (music)
+                    # For text-only results
                     await query.edit_message_text(
                         text=caption,
                         reply_markup=reply_markup
                     )
             except Exception as e:
                 logger.error(f"Error updating result: {e}")
-                # Fallback to sending new message if editing fails
+                # Fallback to sending new message
                 try:
-                    if 'webformatURL' in result:
+                    if media_type == 'photo':
                         await query.message.reply_photo(
-                            photo=result['webformatURL'],
+                            photo=media_url,
+                            caption=caption,
+                            reply_markup=reply_markup
+                        )
+                    elif media_type == 'video':
+                        await query.message.reply_video(
+                            video=media_url,
+                            caption=caption,
+                            reply_markup=reply_markup
+                        )
+                    elif media_type == 'audio':
+                        await query.message.reply_audio(
+                            audio=media_url,
                             caption=caption,
                             reply_markup=reply_markup
                         )
