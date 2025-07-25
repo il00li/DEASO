@@ -13,3 +13,5 @@ services:
         value: 51444506-bffefcaf12816bd85a20222d1
       - key: PORT
         value: "10000"
+      - key: WEBHOOK_URL
+        value: https://pixabay-telegram-bot.onrender.com

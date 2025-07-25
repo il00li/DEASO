@@ -8,6 +8,8 @@ from datetime import datetime
 import requests
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, InputMediaVideo, InputMediaDocument
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
+from flask import Flask, request
+import threading
 
 # Configure logging
 logging.basicConfig(
@@ -24,6 +26,13 @@ except ValueError:
     logger.error("ADMIN_ID must be a valid integer")
     ADMIN_ID = 7251748706
 PIXABAY_API_KEY = os.getenv('PIXABAY_API_KEY', '51444506-bffefcaf12816bd85a20222d1')
+PORT = int(os.getenv('PORT', '10000'))
+WEBHOOK_URL = os.getenv('WEBHOOK_URL', '')
+IS_RENDER = os.getenv('RENDER', 'false').lower() == 'true'
+
+# Flask app for webhook
+app = Flask(__name__)
+application_instance = None
 
 # Validate essential configuration
 if not BOT_TOKEN:
@@ -663,8 +672,28 @@ class PixabayBot:
             await update.message.reply_text("❌ معرف المستخدم غير صحيح")
 
 
+@app.route('/')
+def index():
+    return "Pixabay Telegram Bot is running!"
+
+@app.route('/health')
+def health():
+    return "OK"
+
+@app.route(f'/{BOT_TOKEN}', methods=['POST'])
+def webhook():
+    if application_instance:
+        json_data = request.get_json()
+        update = Update.de_json(json_data, application_instance.bot)
+        asyncio.create_task(application_instance.process_update(update))
+    return "OK"
+
+def run_flask():
+    app.run(host='0.0.0.0', port=PORT, debug=False)
+
 def main():
     """Start the bot"""
+    global application_instance
     try:
         # Validate bot token
         if not BOT_TOKEN or BOT_TOKEN == 'YOUR_BOT_TOKEN_HERE':
@@ -684,6 +713,7 @@ def main():
             .token(BOT_TOKEN)
             .build()
         )
+        application_instance = application
         
         # Add handlers
         application.add_handler(CommandHandler("start", bot.start_command))
@@ -694,12 +724,42 @@ def main():
         logger.info("Starting Pixabay Telegram Bot...")
         logger.info(f"Bot Token: {BOT_TOKEN[:10]}...")
         logger.info(f"Admin ID: {ADMIN_ID}")
+        logger.info(f"Is Render: {IS_RENDER}")
+        logger.info(f"Port: {PORT}")
         
-        # Run with simple polling settings
-        application.run_polling(
-            allowed_updates=Update.ALL_TYPES,
-            drop_pending_updates=True
-        )
+        if IS_RENDER and WEBHOOK_URL:
+            # Webhook mode for Render
+            logger.info("Starting in webhook mode for Render...")
+            
+            # Start Flask in background thread
+            flask_thread = threading.Thread(target=run_flask, daemon=True)
+            flask_thread.start()
+            
+            # Set webhook
+            webhook_url = f"{WEBHOOK_URL}/{BOT_TOKEN}"
+            application.bot.set_webhook(webhook_url)
+            logger.info(f"Webhook set to: {webhook_url}")
+            
+            # Keep application running
+            application.initialize()
+            application.start()
+            
+            # Keep main thread alive
+            try:
+                while True:
+                    asyncio.sleep(1)
+            except KeyboardInterrupt:
+                logger.info("Shutting down...")
+            finally:
+                application.stop()
+                application.shutdown()
+        else:
+            # Polling mode for Replit
+            logger.info("Starting in polling mode for Replit...")
+            application.run_polling(
+                allowed_updates=Update.ALL_TYPES,
+                drop_pending_updates=True
+            )
         
     except Exception as e:
         logger.error(f"Failed to start bot: {e}")
