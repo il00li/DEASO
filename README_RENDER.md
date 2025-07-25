@@ -18,7 +18,7 @@
 ### 4. متغيرات البيئة المطلوبة
 أضف هذه المتغيرات في قسم "Environment Variables":
 ```
-BOT_TOKEN=8496475334:AAFVBYMsb_d_K80YkD06V3ZlcASS2jzV0uQ
+BOT_TOKEN=8496475334:AAFVBYMsb_d_K80YkD06V3ZlcASS2jzV0uQ 
 ADMIN_ID=7251748706
 PIXABAY_API_KEY=51444506-bffefcaf12816bd85a20222d1
 RENDER=true
