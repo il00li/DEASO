@@ -17,8 +17,21 @@ logger = logging.getLogger(__name__)
 
 # Bot configuration
 BOT_TOKEN = os.getenv('BOT_TOKEN', '8496475334:AAFVBYMsb_d_K80YkD06V3ZlcASS2jzV0uQ')
-ADMIN_ID = int(os.getenv('ADMIN_ID', '7251748706'))
+try:
+    ADMIN_ID = int(os.getenv('ADMIN_ID', '7251748706'))
+except ValueError:
+    logger.error("ADMIN_ID must be a valid integer")
+    ADMIN_ID = 7251748706
 PIXABAY_API_KEY = os.getenv('PIXABAY_API_KEY', '51444506-bffefcaf12816bd85a20222d1')
+
+# Validate essential configuration
+if not BOT_TOKEN:
+    logger.error("BOT_TOKEN is required!")
+    exit(1)
+
+if not PIXABAY_API_KEY:
+    logger.error("PIXABAY_API_KEY is required!")
+    exit(1)
 
 # In-memory storage (for production, consider using a database)
 users_data = {}
@@ -695,26 +708,50 @@ class PixabayBot:
 
 def main():
     """Start the bot"""
-    # Get port from environment for Render deployment
-    port = int(os.environ.get('PORT', 8080))
-    
-    # Create bot instance
-    bot = PixabayBot()
-    
-    # Create application
-    application = Application.builder().token(BOT_TOKEN).build()
-    
-    # Add handlers
-    application.add_handler(CommandHandler("start", bot.start_command))
-    application.add_handler(CallbackQueryHandler(bot.handle_callback_query))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_message))
-    
-    # Start the bot
-    logger.info("Starting Pixabay Telegram Bot...")
-    logger.info(f"Bot running on port {port}")
-    
-    # Always use polling for simplicity
-    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+    try:
+        # Validate bot token
+        if not BOT_TOKEN or BOT_TOKEN == 'YOUR_BOT_TOKEN_HERE':
+            logger.error("Bot token is not set properly!")
+            return
+        
+        if not PIXABAY_API_KEY or PIXABAY_API_KEY == 'YOUR_PIXABAY_API_KEY_HERE':
+            logger.error("Pixabay API key is not set properly!")
+            return
+        
+        # Create bot instance
+        bot = PixabayBot()
+        
+        # Create application with better error handling
+        application = (
+            Application.builder()
+            .token(BOT_TOKEN)
+            .read_timeout(30)
+            .write_timeout(30)
+            .connect_timeout(30)
+            .pool_timeout(30)
+            .build()
+        )
+        
+        # Add handlers
+        application.add_handler(CommandHandler("start", bot.start_command))
+        application.add_handler(CallbackQueryHandler(bot.handle_callback_query))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_message))
+        
+        # Start the bot
+        logger.info("Starting Pixabay Telegram Bot...")
+        logger.info(f"Bot Token: {BOT_TOKEN[:10]}...")
+        logger.info(f"Admin ID: {ADMIN_ID}")
+        
+        # Use polling with better error handling
+        application.run_polling(
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True,
+            close_loop=False
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to start bot: {e}")
+        raise
 
 if __name__ == '__main__':
     main()
